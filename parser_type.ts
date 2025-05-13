@@ -40,7 +40,7 @@ export interface ASTNode {
   ordered?: boolean;
   language?: string;
   alt?: string;
-  alignment?: ('left' | 'middle' | 'right')[];
+  alignment?: ('left' | 'center' | 'right')[];
   tableHeader?: boolean;
   title?: string;
 }

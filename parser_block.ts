@@ -37,10 +37,157 @@ export class ParserBlock{
         if (!separatorMatch) return null;
 
         //表头
-        const header = headerLine.slice(1,-1).split('|').map(h=>h.trim()); //slice(1,-1)去掉开头和结尾的|
-        
+        const header = headerLine.replace(/^\||\|$/g, '').split('|').map(cell => cell.trim()); 
+        if(header.length===0){
+            return null;
+        }
 
+
+        const content = separatorLine.replace(/^\||\|$/g, '').split('|').map((cell)=>{
+            cell = cell.trim();
+            if (cell.startsWith(':')  && cell.endsWith(':'))  return 'center';
+            if(cell.startsWith(':')) return 'left';
+            return 'right';
+        });
+        if(content.length!==content.length){
+            return null;
+        }
+
+        const rows:string[][] = [];
+        let currentIndex = startIndex+2;
+
+        while(currentIndex < lines.length &&
+            lines[currentIndex].trim().startsWith('|') &&
+            lines[currentIndex].trim().endsWith('|')){
+                const rowLine = lines[currentIndex].trim(); 
+                const cells = rowLine.replace(/^\||\|$/g, '').split('|').map(cell=>cell.trim());
+
+                if(cells.length === header.length){
+                    rows.push(cells);
+                }
+
+                currentIndex++;
+        }
+
+        const headerCells = header.map(h=>({
+            type:'tableCell' as const,
+            tableHeader:true,
+            nesting:this.inLineParser.parseInline(h),
+        }))
+
+        const headerRow = {
+            type:'tableRow' as const,
+            nesting:headerCells,
+        }
+
+        const bodyRows = rows.map(row=>({
+            type:'tableRow' as const,
+            nesting:row.map(cell=>({
+                type: 'tableCell' as const,
+                isHeader: false,
+                children: this.inLineParser.parseInline(cell),
+            })),
+        }))
+
+        return {
+            type: 'table',
+            alignment:content,
+            nesting: [headerRow, ...bodyRows],
+          }
        
+    }
+
+    //行内元素处理
+    parserInline(text:string):ASTNode[]{
+        const curText = text;
+        const processText = (str: string): ASTNode[] => {
+            const matches = [
+                { match: str.match(rules.markdown.bold), type: 'bold' },
+                { match: str.match(rules.markdown.italic), type: 'italic' },
+                { match: str.match(rules.markdown.link), type: 'link' },
+                { match: str.match(rules.markdown.image), type: 'image' },
+                { match: str.match(rules.markdown.inlineCode), type: 'inlineCode' },
+            ].filter((m) => m.match)
+
+            if(matches.length==0){ //没有匹配上述的元素，返回text即可
+                if(str){
+                    return [{type:'text',value:str}];
+                }
+                
+                return [];
+            }
+
+            const preMatch = matches.reduce((prev,cur)=>{
+                return cur.match!.index! < prev.match!.index!?cur:prev;
+            })
+
+            const {match,type} = preMatch;
+            const before = str.slice(0,match!.index);
+            const after = str.slice(match!.index! + match![0].length);
+
+            const result:ASTNode[] = [];
+            if(before) result.push({type:'text',value:before});
+
+            switch(type){
+                case 'link':
+                    result.push({
+                        type:'link',
+                        url:match![2],
+                        nesting:[{
+                            type:'text',
+                            value:match![1],
+                        }]
+                    });
+                case 'image':
+                    result.push({
+                        type: 'image',
+                        url: match![2],
+                        alt: match![1],
+                    })
+                default:
+                    result.push({
+                        type: type as 'bold' | 'italic' | 'inlineCode',
+                        value: match![1],
+                    })
+            }
+
+            result.push(...processText(after));
+
+            return result;
+
+        }
+
+        return processText(curText);
+    }
+
+    private handleBlcokquote(
+        line:string,
+        index:number,
+        lines:string[],
+        blocks:ASTNode[],
+    ):number{
+        if (!rules.markdown.blockquote.test(line)) {
+            return 0;
+        }
+
+        const quotes:string[] = [];
+        let curIndex = index;
+        
+        while (
+            curIndex < lines.length &&
+            rules.markdown.blockquote.test(lines[curIndex])
+          ) {
+            const [, content] = lines[curIndex].match(rules.markdown.blockquote) || [];
+            quotes.push(content);
+            curIndex++;
+          }
+
+          blocks.push({
+            type: 'blockquote',
+            nesting: this.inLineParser.parseInline(quotes.join('\n')),
+          })
+      
+          return curIndex - index;
     }
 
     parserBlocks(lines:string[]): ASTNode[]{
@@ -50,16 +197,19 @@ export class ParserBlock{
         
 
         const finalizeContext = () => {
-            if(currentParagraph.length > 0){
+            if(currentParagraph.length > 0){ //当前段落不为空，将其加入blocks元素中
                 blocks.push(this.createParagraph(currentParagraph));
                 currentParagraph = [];
+            }
+
+            if(this.currentList){ 
+                blocks.push(this.currentList); //将当前列表加入blocks元素中
+                this.currentList = null; //重置当前列表
             }
         }
 
         for(let i=0;i<lines.length;i++){
             const line = lines[i].trimEnd();
-
-            
 
             if(line.startsWith('```')){  //代码段
                 finalizeContext();
@@ -106,10 +256,7 @@ export class ParserBlock{
                 const [,content] = line.match(rules.markdown.blockquote) || [];
                 blocks.push({
                     type:'blockquote',
-                    nesting:[{
-                        type:'text',
-                        value:content,
-                    }]
+                    nesting:this.inLineParser.parseInline(content),
                 })
             }
 
