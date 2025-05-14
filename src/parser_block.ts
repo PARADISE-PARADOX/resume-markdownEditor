@@ -85,7 +85,7 @@ export class ParserBlock{
             nesting:row.map(cell=>({
                 type: 'tableCell' as const,
                 isHeader: false,
-                children: this.inLineParser.parseInline(cell),
+                nesting: this.inLineParser.parseInline(cell),
             })),
         }))
 
@@ -138,12 +138,14 @@ export class ParserBlock{
                             value:match![1],
                         }]
                     });
+                    break;
                 case 'image':
                     result.push({
                         type: 'image',
                         url: match![2],
                         alt: match![1],
-                    })
+                    });
+                    break;
                 default:
                     result.push({
                         type: type as 'bold' | 'italic' | 'inlineCode',
@@ -194,8 +196,6 @@ export class ParserBlock{
         const blocks: ASTNode[] = []; // 存储最终结果
         let currentParagraph:string[] = []; // 存储正在处理的段落
 
-        
-
         const finalizeContext = () => {
             if(currentParagraph.length > 0){ //当前段落不为空，将其加入blocks元素中
                 blocks.push(this.createParagraph(currentParagraph));
@@ -210,6 +210,14 @@ export class ParserBlock{
 
         for(let i=0;i<lines.length;i++){
             const line = lines[i].trimEnd();
+
+            const blockquoteCount = this.handleBlcokquote(line, i, lines, blocks); // ✅ 直接传 line
+            if(blockquoteCount > 0){
+                i += blockquoteCount - 1;//跳过引用的行
+                finalizeContext();
+
+            }
+
 
             if(line.startsWith('```')){  //代码段
                 finalizeContext();
@@ -246,7 +254,12 @@ export class ParserBlock{
 
             //处理表格
             if(rules.markdown.table.header.test(line)){
-                
+                const tableData = this.parserTable(lines,i);
+                if(tableData && tableData.nesting){
+                    blocks.push(tableData);
+                    i += tableData.nesting.length - 1+1;
+                    
+                }
                     
             }
 
