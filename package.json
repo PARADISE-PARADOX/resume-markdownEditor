@@ -1,0 +1,19 @@
+{
+  "name": "resume-markdown-editor",
+  "version": "1.0.0",
+  "description": "Markdown解析器",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "ts-node test.ts",
+    "start": "node lib/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.11.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
